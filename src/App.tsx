@@ -8,7 +8,7 @@ import {
   type LineData,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { Typography, Button, Stack, Paper, Box } from "@mui/material";
+import { Typography, Button, Stack, Paper, Box, Alert } from "@mui/material";
 import useSWR from "swr";
 
 export interface StockData {
@@ -63,7 +63,13 @@ export default function App() {
         vertLines: { visible: false },
         horzLines: { color: "rgba(255,255,255,0.1)" },
       },
-      rightPriceScale: { borderColor: "#1f2937" },
+      leftPriceScale: {
+        visible: true, // Hiển thị trục giá bên trái
+        borderColor: "#1f2937", // Viền trục giá
+      },
+      rightPriceScale: {
+        visible: false, // Ẩn trục giá bên phải
+      },
       timeScale: {
         borderColor: "#1f2937",
         timeVisible: true,
@@ -138,16 +144,20 @@ export default function App() {
     };
   }, []);
 
-  // update data
   useEffect(() => {
-    if (seriesRef.current) {
-      seriesRef.current.setData(lineData);
-      chartRef.current?.timeScale().fitContent();
+    if (seriesRef.current && lineData.length) {
+      try {
+        console.log("Cập nhật dữ liệu biểu đồ:", lineData);
+        seriesRef.current.setData(lineData);
+        chartRef.current?.timeScale().fitContent();
+      } catch (error) {
+        console.error("Lỗi khi cập nhật dữ liệu biểu đồ:", error);
+      }
     }
   }, [lineData]);
 
   if (error) {
-    return <div>Failed to load data</div>;
+    return <Alert severity="error">Failed to load data</Alert>;
   }
 
   return (
