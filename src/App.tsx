@@ -92,8 +92,8 @@ export default function App() {
     const series = chart.addSeries(LineSeries, {
       color: "#3b82f6",
       lineWidth: 2,
-      lastValueVisible: false, // vẫn hiển thị label giá cuối bên phải
-      priceLineVisible: false, // ❌ tắt đường ngang cố định
+      lastValueVisible: true, // vẫn hiển thị label giá cuối bên phải
+      priceLineVisible: true, // ❌ tắt đường ngang cố định
       crosshairMarkerVisible: true,
     });
 
