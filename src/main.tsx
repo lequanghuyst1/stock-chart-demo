@@ -7,8 +7,8 @@ const darkTheme = createTheme({
   palette: {
     mode: "dark",
     background: {
-      default: "#131722", // nền tối giống TradingView
-      paper: "#1e222d", // nền panel
+      default: "#131722",
+      paper: "#1e222d",
     },
     text: {
       primary: "#d1d4dc",
