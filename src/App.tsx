@@ -1,83 +1,188 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-import { Typography, Button, Stack, Paper, Box } from "@mui/material";
-import {
   createChart,
-  IChartApi,
-  LineSeriesPartialOptions,
+  LineSeries,
+  type IChartApi,
+  type ISeriesApi,
+  type LineData,
+  type UTCTimestamp,
 } from "lightweight-charts";
+import { Typography, Button, Stack, Paper, Box } from "@mui/material";
+import useSWR from "swr";
 
 export interface StockData {
   date: string;
   close: number;
 }
 
+export const fetcher = (url: string) => axios.get(url).then((res) => res.data);
+
 const TIME_FRAMES = ["hourly", "daily", "weekly", "monthly"] as const;
 type TimeFrame = (typeof TIME_FRAMES)[number];
 
-function App() {
+export default function App() {
   const [timeFrame, setTimeFrame] = useState<TimeFrame>("daily");
-  const [data, setData] = useState<StockData[]>([]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const toolTipRef = useRef<HTMLDivElement | null>(null);
 
+  // dùng SWR call API
+  const {
+    data: apiData,
+    error,
+    isLoading,
+  } = useSWR(
+    `https://chart.stockscan.io/candle/v3/TSLA/${timeFrame}/NASDAQ`,
+    fetcher,
+    {
+      revalidateIfStale: false,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateOnMount: true,
+    }
+  );
+
+  // map dữ liệu
+  const lineData: LineData[] = useMemo(() => {
+    if (!apiData?.candles) return [];
+    return apiData.candles.map((d: any) => ({
+      time: Math.floor(new Date(d.date).getTime() / 1000) as UTCTimestamp,
+      value: Number(d.close),
+    }));
+  }, [apiData]);
+
+  // init chart
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const url = `https://chart.stockscan.io/candle/v3/TSLA/${timeFrame}/NASDAQ`;
-        const res = await axios.get(url);
+    if (!containerRef.current) return;
 
-        const formatted: StockData[] = res.data?.candles.map((item: any) => ({
-          date: item.date,
-          close: item.close,
-        }));
+    const chart = createChart(containerRef.current, {
+      autoSize: true,
+      layout: {
+        background: { color: "#000000" }, // nền đen
+        textColor: "#d1d5db",
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { color: "rgba(255,255,255,0.1)" },
+      },
+      rightPriceScale: { borderColor: "#1f2937" },
+      timeScale: {
+        borderColor: "#1f2937",
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      crosshair: {
+        mode: 0,
+        vertLine: { color: "#3b82f6", width: 1, style: 2 },
+        horzLine: { color: "#3b82f6", width: 1, style: 2 },
+      },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true },
+      handleScale: {
+        axisPressedMouseMove: { time: true, price: true },
+        mouseWheel: true,
+        pinch: true,
+      },
+    });
 
-        setData(formatted);
-      } catch (err) {
-        console.error("Fetch error:", err);
+    // line series
+    const series = chart.addSeries(LineSeries, {
+      color: "#3b82f6",
+      lineWidth: 2,
+      lastValueVisible: false, // vẫn hiển thị label giá cuối bên phải
+      priceLineVisible: false, // ❌ tắt đường ngang cố định
+      crosshairMarkerVisible: true,
+    });
+
+    // tooltip
+    const toolTip = document.createElement("div");
+    toolTip.style.position = "absolute";
+    toolTip.style.display = "none";
+    toolTip.style.background = "rgba(0,0,0,0.8)";
+    toolTip.style.color = "#fff";
+    toolTip.style.padding = "6px 10px";
+    toolTip.style.borderRadius = "6px";
+    toolTip.style.fontSize = "12px";
+    toolTip.style.pointerEvents = "none";
+    toolTip.style.zIndex = "1000";
+    containerRef.current.appendChild(toolTip);
+
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.point || !param.time) {
+        toolTip.style.display = "none";
+        return;
       }
-    };
+      const data = param.seriesData.get(series) as
+        | LineData<UTCTimestamp>
+        | undefined;
+      if (data?.value !== undefined) {
+        const ts = (param.time as number) * 1000;
+        const utcStr = new Date(ts)
+          .toISOString()
+          .replace("T", " ")
+          .slice(0, 19);
 
-    fetchData();
-  }, [timeFrame]);
+        toolTip.style.display = "block";
+        toolTip.innerHTML = `📅 ${utcStr} UTC <br/> 💲 ${data.value.toFixed(
+          2
+        )}`;
+        toolTip.style.left = param.point.x + 15 + "px";
+        toolTip.style.top = param.point.y + "px";
+      }
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+    toolTipRef.current = toolTip;
+
+    return () => {
+      chart.remove();
+      toolTip.remove();
+    };
+  }, []);
+
+  // update data
+  useEffect(() => {
+    if (seriesRef.current) {
+      seriesRef.current.setData(lineData);
+      chartRef.current?.timeScale().fitContent();
+    }
+  }, [lineData]);
+
+  if (error) {
+    return <div>Failed to load data</div>;
+  }
 
   return (
-    <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Header + buttons */}
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h4" fontWeight="bold" gutterBottom>
-          TSLA Stock Chart
+    <Box sx={{ height: "100vh", overflow: "hidden", bgcolor: "#000" }}>
+      <Stack sx={{ p: 2, height: "100%" }} spacing={2}>
+        <Typography variant="h5" fontWeight={700} color="#e2e8f0">
+          TSLA Stock
         </Typography>
 
-        <Stack direction="row" spacing={2}>
+        {/* Buttons */}
+        <Stack direction="row" spacing={1}>
           {TIME_FRAMES.map((tf) => (
             <Button
               key={tf}
               variant={timeFrame === tf ? "contained" : "outlined"}
               onClick={() => setTimeFrame(tf)}
               sx={{
-                borderRadius: "20px",
                 textTransform: "capitalize",
+                borderRadius: 3,
+                px: 2.5,
                 fontWeight: 600,
-                px: 3,
-                py: 1,
                 ...(timeFrame === tf
                   ? {
-                      bgcolor: "#26a69a", // xanh ngọc dịu mắt
+                      bgcolor: "#3b82f6",
                       color: "#fff",
-                      "&:hover": { bgcolor: "#1e857d" }, // hover đậm hơn một chút
+                      "&:hover": { bgcolor: "#2563eb" },
                     }
                   : {
-                      borderColor: "#555",
-                      color: "#d1d4dc",
-                      "&:hover": { bgcolor: "#2a2e39" },
+                      borderColor: "#374151",
+                      color: "#cbd5e1",
+                      "&:hover": { bgcolor: "#1f2937" },
                     }),
               }}
             >
@@ -85,119 +190,22 @@ function App() {
             </Button>
           ))}
         </Stack>
-      </Box>
 
-      {/* Chart chiếm toàn bộ phần còn lại */}
-      <Box sx={{ flex: 1, p: 3, pt: 0, borderRadius: 2, overflow: "hidden" }}>
+        {/* Chart */}
         <Paper
           elevation={3}
-          sx={{ height: "100%", bgcolor: "#131722", pt: 2 }} // nền tối
+          sx={{
+            p: 1.5,
+            flex: 1,
+            minHeight: 0,
+            bgcolor: "#000",
+            borderRadius: 2,
+            position: "relative",
+          }}
         >
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data}>
-              {/* Grid */}
-              <CartesianGrid
-                stroke="rgba(255,255,255,0.12)"
-                strokeDasharray="3 3"
-              />
-
-              {/* Trục X */}
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 12, fill: "#d1d4dc" }}
-                axisLine={{ stroke: "#2a2e39" }}
-                tickLine={{ stroke: "#2a2e39" }}
-                minTickGap={20}
-              />
-
-              {/* Trục Y */}
-              <YAxis
-                dataKey="close"
-                domain={["auto", "auto"]}
-                tick={{ fontSize: 12, fill: "#d1d4dc" }}
-                axisLine={{ stroke: "#2a2e39" }}
-                tickLine={{ stroke: "#2a2e39" }}
-              />
-
-              {/* Tooltip */}
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#1e222d",
-                  border: "none",
-                  borderRadius: "6px",
-                  color: "#d1d4dc",
-                }}
-              />
-
-              {/* Line giá */}
-              <Line
-                type="monotone"
-                dataKey="close"
-                stroke="#26a69a" // xanh ngọc giống chart tăng
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <Box ref={containerRef} sx={{ width: "100%", height: "100%" }} />
         </Paper>
-      </Box>
+      </Stack>
     </Box>
-  );
-}
-
-export default App;
-
-function StockChart({ data }: { data: DataPoint[] }) {
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-
-    // Tạo chart
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 400,
-      layout: {
-        background: { color: "#131722" },
-        textColor: "#d1d4dc",
-      },
-      grid: {
-        vertLines: { color: "rgba(255,255,255,0.1)" },
-        horzLines: { color: "rgba(255,255,255,0.1)" },
-      },
-      crosshair: {
-        mode: 0,
-      },
-    });
-    chartRef.current = chart;
-
-    // Thêm line series (API mới)
-    const lineSeries = chart.addSeries({
-      type: "Line",
-      options: {
-        Line: {
-          color: "#26a69a",
-          lineWidth: 2,
-        },
-      },
-    });
-
-    lineSeries.setData(data);
-
-    // Resize responsive
-    const handleResize = () => {
-      chart.applyOptions({ width: chartContainerRef.current!.clientWidth });
-    };
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
-  }, [data]);
-
-  return (
-    <div ref={chartContainerRef} style={{ width: "100%", height: "100%" }} />
   );
 }
