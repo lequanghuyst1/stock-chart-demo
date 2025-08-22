@@ -29,11 +29,7 @@ export default function App() {
   const toolTipRef = useRef<HTMLDivElement | null>(null);
 
   // dùng SWR call API
-  const {
-    data: apiData,
-    error,
-    isLoading,
-  } = useSWR(
+  const { data: apiData, error } = useSWR(
     `https://chart.stockscan.io/candle/v3/TSLA/${timeFrame}/NASDAQ`,
     fetcher,
     {
